@@ -134,8 +134,9 @@ def update_level1_file(filename, datestr, params=PARAMS_20230814,old_prefix='_19
     grp.create_dataset('pixel_pointing/pixel_el', data=el)
     grp.create_dataset('pixel_pointing/pixel_ra', data=ra)
     grp.create_dataset('pixel_pointing/pixel_dec', data=dec)
-    grp.create_dataset('pixel_pointing/pixel_xoffset', data=grp['pixel_pointing_191101/pixel_xoffset'][...])
-    grp.create_dataset('pixel_pointing/pixel_yoffset', data=grp['pixel_pointing_191101/pixel_yoffset'][...])
+    if 'pixel_pointing_191101/pixel_xoffset' in grp:
+        grp.create_dataset('pixel_pointing/pixel_xoffset', data=grp['pixel_pointing_191101/pixel_xoffset'][...])
+        grp.create_dataset('pixel_pointing/pixel_yoffset', data=grp['pixel_pointing_191101/pixel_yoffset'][...])
 
     grp['pixel_pointing'].attrs['azel_pointing_model_'+datestr] = params
 
@@ -150,5 +151,5 @@ def reverse_update_level1_file(filename, old_prefix='_191101'):
     h.close()
 
 if __name__ == "__main__":
-
+    reverse_update_level1_file(sys.argv[1])
     update_level1_file(sys.argv[1], DATESTR_20230814)
