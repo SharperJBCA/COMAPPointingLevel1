@@ -3,6 +3,7 @@ from matplotlib import pyplot
 import h5py 
 import os 
 import sys 
+from Tools import Coordinates
 
 # 1) Function that opens the level 1 file
 # 2) Function that contains the pointing model 
@@ -11,6 +12,10 @@ import sys
 # 5) Apply correction to old az/el data and write to the new pixel_pointing group
 # 6) Calculate updated ra/dec coordinates and write to the new pixel_pointing group
 # 7) Add an attribute to pixel_pointing group of: .attrs['azel\_pointing_model\_YYMMDD'] = [$A$, $B$,...]
+
+# A,B,C,D,E,a,b
+PARAMS_20230814 = [-0.04008, 0.00845, 0.03503, -0.00592, -0.00960,0.00655,-0.01208]
+DATESTR_20230814 = '20230814'
 
 class PointingModel:
     def __init__(self, az_functions=['function_A', 'function_B','function_C','function_D','function_E'], el_functions=['function_a', 'function_b','function_c']):
@@ -87,10 +92,63 @@ class PointingModel:
         return model_az, model_el
 
 
-def update_level1_file(filename, datestr):
+def update_level1_file(filename, datestr, params=PARAMS_20230814,old_prefix='_191101'):
     """
     filename : str - name of the level 1 file
     datestr : str - date of the observation in YYMMDD format
+    params : list - list of parameters for the pointing model
     """
 
     pointing_model = PointingModel()
+
+    h = h5py.File(filename, 'r+')
+
+    grp = h['spectrometer'] 
+    # Read in az/el/mjd 
+    az = grp['pixel_pointing/pixel_az'][...]
+    el = grp['pixel_pointing/pixel_el'][...]
+    mjd = grp['MJD'][:]
+
+    # Apply pointing model to az/el
+    for i in range(az.shape[0]):
+        model_az, model_el = pointing_model(az[i], el[i], *params)
+        el[i] = el[i] + model_el
+        az[i] = az[i] + model_az/np.cos(el[i]*np.pi/180.) 
+
+    # Update RA/Dec 
+    ra = np.zeros(az.shape)
+    dec = np.zeros(az.shape)
+    for i in range(az.shape[0]):
+        ra[i],dec[i] = Coordinates.h2e_full(az[i],el[i], mjd, Coordinates.comap_longitude, Coordinates.comap_latitude)
+
+    # Check if the pixel_pointing group exists
+    if 'pixel_pointing' in grp:
+        # Rename the group to pixel_pointing_191101
+        grp.move('pixel_pointing', f'pixel_pointing_191101')
+
+    # Create a new pixel_pointing group
+    grp.create_group('pixel_pointing')
+
+    # Now update the pointing data
+    grp.create_dataset('pixel_pointing/pixel_az', data=az)
+    grp.create_dataset('pixel_pointing/pixel_el', data=el)
+    grp.create_dataset('pixel_pointing/pixel_ra', data=ra)
+    grp.create_dataset('pixel_pointing/pixel_dec', data=dec)
+    grp.create_dataset('pixel_pointing/pixel_xoffset', data=grp['pixel_pointing_191101/pixel_xoffset'][...])
+    grp.create_dataset('pixel_pointing/pixel_yoffset', data=grp['pixel_pointing_191101/pixel_yoffset'][...])
+
+    grp['pixel_pointing'].attrs['azel_pointing_model_'+datestr] = params
+
+    h.close()
+
+def reverse_update_level1_file(filename, old_prefix='_191101'):
+    h = h5py.File(filename, 'r+')
+    grp = h['spectrometer']
+    if f'pixel_pointing{old_prefix}' in grp:
+        del grp[f'pixel_pointing']
+        grp.move(f'pixel_pointing{old_prefix}', 'pixel_pointing')
+    h.close()
+
+if __name__ == "__main__":
+
+    update_level1_file(sys.argv[1], DATESTR_20230814)
